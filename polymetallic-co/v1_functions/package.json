@@ -1,9 +1,0 @@
-{
-  "name": "cloud-function-ping-service",
-  "version": "1.0.0",
-  "description": "A Google Cloud Function to ping a website and trigger a webhook on error",
-  "main": "index.js",
-  "dependencies": {
-    "axios": "^0.21.1"
-  }
-}
