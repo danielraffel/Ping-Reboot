@@ -28,6 +28,7 @@ The script requires the following tools and checks for them before running:
 - `ssh-keyscan`
 
 Instructions for installing missing prerequisites are provided in the script.
+Assumes you're running on macOS.
 
 ### Getting Started
 
@@ -80,3 +81,6 @@ For advanced users, a debug mode is available to provide detailed logs during sc
 - This project, with slight modifications, integrates components from [httpPing](https://github.com/danielraffel/httpPing) and [restartVMService](https://github.com/danielraffel/restartVMService). It has been repackaged for broader utility beyond its initial use for [Ghost.org](http://ghost.org).
 - Initially, this tool was developed to oversee a [Ghost Blog](http://ghost.org) operating on a Google Cloud e2 micro-instance with limited resources. The blog frequently experienced downtimes, prompting the need for automation in its restart process.
 - At time of publishing, assuming you're not running other Google Cloud Functions this service should fall below minimum thresholds to trigger billing costs though I would advise you to check the latest Google pricing tiers to confirm that remains the case.
+
+## Future Items to Consider
+- Implement trivial changes in `main.sh` to support installing via Linux/etc.
