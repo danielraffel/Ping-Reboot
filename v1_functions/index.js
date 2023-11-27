@@ -1,7 +1,7 @@
 const axios = require('axios');
 
-const pingURL = "http://YOURDOMAIN.COM";
-const webhookURL = "YOUR_WEBHOOK_URL";
+const pingURL = "YOURDOMAIN.COM";
+const webhookURL = "YOUR_WEBHOOK_URL2";
 const secretPayload = { "secret": "YOUR_UNIQUE_PASSWORD" };
 
 let consecutiveErrors = 0;
