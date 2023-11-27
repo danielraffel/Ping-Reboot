@@ -117,11 +117,11 @@ confirm_and_prompt() {
 
   num_projects=${#project_ids[@]}  # Get the number of projects
   echo "Select the Google Cloud Project hosting your server:"
+  PS3="Enter your choice (1-$num_projects): "  # Update the prompt based on the number of projects
   select project in "${project_ids[@]}"; do
     YOUR_PROJECT_ID=$project
     break
   done
-  PS3="Enter your choice (1-$num_projects): "  # Update the prompt based on the number of projects
 
   # After selecting project, ask user to select VM IP
   select_vm_ip
@@ -144,7 +144,7 @@ deploy_cloud_function() {
   local region=$4
   local source_folder=$5
   local is_gen2=$6  # Add a parameter to indicate if the function is gen2
-  local max_wait=240
+  local max_wait=5
   local wait_time=5
   local elapsed_time=0
 
@@ -224,7 +224,7 @@ update_and_deploy_functions() {
   debug_msg "Deploying from source directory: $DEPLOY_DIR/v2_functions"
   deploy_cloud_function "$FUNCTION_NAME_V2" "restartVM" "nodejs18" "$YOUR_REGION" "$DEPLOY_DIR/v2_functions" "yes"
   # After deploying v2 function, retrieve URL
-  YOUR_WEBHOOK_URL2=$(gcloud functions describe $FUNCTION_NAME_V2 --region $YOUR_REGION --format 'value(httpsTrigger.url)')
+  YOUR_WEBHOOK_URL2=$(gcloud functions describe $FUNCTION_NAME_V2 --gen2 --region $YOUR_REGION --format="value(serviceConfig.uri)")
   debug_msg "YOUR_WEBHOOK_URL2 for v2 function: $YOUR_WEBHOOK_URL2"
 
   # Copy v1 function files and update them
@@ -237,13 +237,13 @@ update_and_deploy_functions() {
     debug_msg "Copied v1 function files successfully."
 
     # Update variables in the copied v1 function files
-    sed -i '' "s/YOURDOMAIN.COM/$YOURDOMAIN/g" "$DEPLOY_DIR/v1_functions/index.js"
+    sed -i '' "s|YOURDOMAIN|$YOURDOMAIN|g" "$DEPLOY_DIR/v1_functions/index.js"
     debug_msg "Updated YOURDOMAIN in $DEPLOY_DIR/v1_functions/index.js"
 
-    sed -i '' "s/YOUR_WEBHOOK_URL2/$YOUR_WEBHOOK_URL2/g" "$DEPLOY_DIR/v1_functions/index.js"
+    sed -i '' "s|YOUR_WEBHOOK_URL2|$YOUR_WEBHOOK_URL2|g" "$DEPLOY_DIR/v1_functions/index.js"
     debug_msg "Updated YOUR_WEBHOOK_URL2 in $DEPLOY_DIR/v1_functions/index.js"
 
-    sed -i '' "s/YOUR_UNIQUE_PASSWORD/$YOUR_UNIQUE_PASSWORD/g" "$DEPLOY_DIR/v1_functions/index.js"
+    sed -i '' "s|YOUR_UNIQUE_PASSWORD|$YOUR_UNIQUE_PASSWORD|g" "$DEPLOY_DIR/v1_functions/index.js"
     debug_msg "Updated YOUR_UNIQUE_PASSWORD in $DEPLOY_DIR/v1_functions/index.js"
   fi
 
@@ -266,7 +266,7 @@ update_and_deploy_functions() {
     --schedule="* * * * *" \
     --uri="$YOUR_WEBHOOK_URL1" \
     --http-method="GET" \
-    --location="us-west1"
+    --location="$YOUR_REGION"
 
   debug_msg "Created Cloud Scheduler job: $SCHEDULER_NAME"
 }
