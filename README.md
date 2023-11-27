@@ -2,13 +2,13 @@
 
 ## Overview
 
-PingAndRestart is designed to monitor and automatically restart e2 micro-instances hosted on Google Cloud that are resource-constrained. While it's a handy solution for automating non-sensitive projects, it is not intended for production environments running critical applications.
+PingAndRestart is designed to monitor and automatically restart e2 micro-instances hosted on Google Cloud that are resource-constrained. While it's a handy solution for automating non-sensitive projects, it is not intended for production environments running critical applications. 
 
 ## How It Works
 
 The service operates through two main components:
 
-1. **httpPing**: A cloud function that monitors the domain specified by the user. It triggers an alert if it fails to receive a response from two consecutive pings.
+1. **httpPing**: A cloud function that monitors the domain specified by the user every minute. It triggers an alert if it fails to receive a response from two consecutive pings.
 2. **restartVMService**: Another cloud function that restarts the VM if httpPing detects an issue.
 
 These components are orchestrated by Google Cloud Scheduler, ensuring regular checks and prompt responses to any detected issues.
@@ -79,3 +79,4 @@ For advanced users, a debug mode is available to provide detailed logs during sc
 - It's crucial to review and understand the actions performed by the script to ensure it aligns with your project requirements.
 - This project, with slight modifications, integrates components from [httpPing](https://github.com/danielraffel/httpPing) and [restartVMService](https://github.com/danielraffel/restartVMService). It has been repackaged for broader utility beyond its initial use for [Ghost.org](http://ghost.org).
 - Initially, this tool was developed to oversee a [Ghost Blog](http://ghost.org) operating on a Google Cloud e2 micro-instance with limited resources. The blog frequently experienced downtimes, prompting the need for automation in its restart process.
+- At time of publishing, assuming you're not running other Google Cloud Functions this service should fall below minimum thresholds to trigger billing costs though I would advise you to check the latest Google pricing tiers to confirm that remains the case.
