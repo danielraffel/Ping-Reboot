@@ -104,7 +104,8 @@ confirm_and_prompt() {
   select_vm_ip
 
   # Processing the domain to create a valid Cloud Function name
-  PROCESSED_DOMAIN=$(echo $YOURDOMAIN | sed -e 's|http[s]\?://||g' | sed -e 's/www\.//' | sed -e 's/[.]/-/g' | tr '[:upper:]' '[:lower:]')
+  PROCESSED_DOMAIN=$(echo $YOURDOMAIN | sed -E 's|(https?://)||' | sed -E 's|/$||' | sed -E 's|www\.||' | sed -E 's|\.([a-zA-Z0-9]+)|-\1|g' | tr '[:upper:]' '[:lower:]')
+  debug_msg "Processed domain for directory: $PROCESSED_DOMAIN"
 
   # Generate function names based on processed domain
   FUNCTION_NAME_V2="restartvmservice-${PROCESSED_DOMAIN}"
@@ -150,44 +151,70 @@ deploy_cloud_function() {
 update_and_deploy_functions() {
   # Ensure the working directory is correct
   cd "$(dirname "$0")"
+  CURRENT_DIR=$(pwd) # Get the current directory of the script
 
   # Use the previously processed domain
   debug_msg "Processed domain: $PROCESSED_DOMAIN"
 
   # Create a new directory to hold the function deployments
-  DEPLOY_DIR="./$PROCESSED_DOMAIN"
+  DEPLOY_DIR="$CURRENT_DIR/$PROCESSED_DOMAIN" # Use absolute path
   mkdir -p "$DEPLOY_DIR/v1_functions"
   mkdir -p "$DEPLOY_DIR/v2_functions"
+  debug_msg "Created directories under: $DEPLOY_DIR"
 
   # Copy v2 function files and update them
   debug_msg "Copying and updating v2 function files..."
   cp v2_functions/index.js v2_functions/package.json "$DEPLOY_DIR/v2_functions/"
-  sed -i '' "s/YOUR_PROJECT_ID/$YOUR_PROJECT_ID/g" "$DEPLOY_DIR/v2_functions/index.js"
-  sed -i '' "s/YOUR_STATIC_IP/$YOUR_STATIC_IP/g" "$DEPLOY_DIR/v2_functions/index.js"
+  if [ $? -ne 0 ]; then
+    echo "Error copying v2 function files to $DEPLOY_DIR/v2_functions/"
+    exit 1
+  else
+    debug_msg "Copied v2 function files successfully."
 
-    # Deploy the v2 function
+    # Update YOUR_PROJECT_ID in the copied v2 function files
+    sed -i '' "s/YOUR_PROJECT_ID/$YOUR_PROJECT_ID/g" "$DEPLOY_DIR/v2_functions/index.js"
+    debug_msg "Updated YOUR_PROJECT_ID in $DEPLOY_DIR/v2_functions/index.js"
+
+    # Update YOUR_STATIC_IP in the copied v2 function files
+    sed -i '' "s/YOUR_STATIC_IP/$YOUR_STATIC_IP/g" "$DEPLOY_DIR/v2_functions/index.js"
+    debug_msg "Updated YOUR_STATIC_IP in $DEPLOY_DIR/v2_functions/index.js"
+  fi
+
+  # Deploy the v2 function
+  debug_msg "Deploying from source directory: $DEPLOY_DIR/v2_functions"
   deploy_cloud_function "$FUNCTION_NAME_V2" "restartVM" "nodejs18" "$YOUR_REGION" "$DEPLOY_DIR/v2_functions"
   # After deploying v2 function, retrieve URL
   YOUR_WEBHOOK_URL2=$(gcloud functions describe $FUNCTION_NAME_V2 --region $YOUR_REGION --format 'value(httpsTrigger.url)')
-  debug_msg "$FUNCTION_NAME_V2 URL: $YOUR_WEBHOOK_URL2"
-
-  # Use YOUR_WEBHOOK_URL2 in sed command for v1 function files
-  sed -i '' "s/YOUR_WEBHOOK_URL2/$YOUR_WEBHOOK_URL2/g" "$DEPLOY_DIR/v1_functions/index.js"
+  debug_msg "YOUR_WEBHOOK_URL2 for v2 function: $YOUR_WEBHOOK_URL2"
 
   # Copy v1 function files and update them
   debug_msg "Copying and updating v1 function files..."
   cp v1_functions/index.js v1_functions/package.json "$DEPLOY_DIR/v1_functions/"
-  sed -i '' "s/YOURDOMAIN.COM/$YOURDOMAIN/g" "$DEPLOY_DIR/v1_functions/index.js"
-  sed -i '' "s/YOUR_WEBHOOK_URL2/$YOUR_WEBHOOK_URL2/g" "$DEPLOY_DIR/v1_functions/index.js"
-  sed -i '' "s/YOUR_UNIQUE_PASSWORD/$YOUR_UNIQUE_PASSWORD/g" "$DEPLOY_DIR/v1_functions/index.js"
+  if [ $? -ne 0 ]; then
+    echo "Error copying v1 function files to $DEPLOY_DIR/v1_functions/"
+    exit 1
+  else
+    debug_msg "Copied v1 function files successfully."
+
+    # Update variables in the copied v1 function files
+    sed -i '' "s/YOURDOMAIN.COM/$YOURDOMAIN/g" "$DEPLOY_DIR/v1_functions/index.js"
+    debug_msg "Updated YOURDOMAIN in $DEPLOY_DIR/v1_functions/index.js"
+
+    sed -i '' "s/YOUR_WEBHOOK_URL2/$YOUR_WEBHOOK_URL2/g" "$DEPLOY_DIR/v1_functions/index.js"
+    debug_msg "Updated YOUR_WEBHOOK_URL2 in $DEPLOY_DIR/v1_functions/index.js"
+
+    sed -i '' "s/YOUR_UNIQUE_PASSWORD/$YOUR_UNIQUE_PASSWORD/g" "$DEPLOY_DIR/v1_functions/index.js"
+    debug_msg "Updated YOUR_UNIQUE_PASSWORD in $DEPLOY_DIR/v1_functions/index.js"
+  fi
 
   # Deploy the v1 function
+  debug_msg "Deploying from source directory: $DEPLOY_DIR/v1_functions"
   deploy_cloud_function "$FUNCTION_NAME_V1" "httpPing" "nodejs20" "$YOUR_REGION" "$DEPLOY_DIR/v1_functions"
 
   # Retrieve and store the URL of the deployed v1 function
   if deploy_cloud_function "$FUNCTION_NAME_V1" "httpPing" "nodejs20" "$YOUR_REGION" "$DEPLOY_DIR/v1_functions"; then
     YOUR_WEBHOOK_URL1=$(gcloud functions describe $FUNCTION_NAME_V1 --region $YOUR_REGION --format 'value(httpsTrigger.url)')
-    debug_msg "$FUNCTION_NAME_V1 URL: $YOUR_WEBHOOK_URL1"
+    debug_msg "YOUR_WEBHOOK_URL1 for v1 function: $YOUR_WEBHOOK_URL1"
   else
     echo "Failed to deploy $FUNCTION_NAME_V1. Exiting."
     exit 1
