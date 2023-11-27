@@ -31,6 +31,23 @@ check_prerequisites() {
   fi
 }
 
+# Function to select VM and set YOUR_STATIC_IP
+select_vm_ip() {
+  echo "Fetching Virtual Machine IPs..."
+  vm_ips=$(gcloud compute instances list --project $YOUR_PROJECT_ID --format="value(networkInterfaces[0].accessConfigs[0].natIP)")
+  
+  if [ -z "$vm_ips" ]; then
+    echo "No Virtual Machines with external IPs found in the selected project."
+    exit 1
+  fi
+
+  echo "Select the Virtual Machine IP to monitor:"
+  select ip in $vm_ips; do
+    YOUR_STATIC_IP=$ip
+    break
+  done
+}
+
 # Function to prompt user and get inputs
 confirm_and_prompt() {
   read -p $'This script will create Google Cloud functions that ping your server and auto restart it if there are issues.\nShall we proceed? (Y/N) ' answer
@@ -82,6 +99,9 @@ confirm_and_prompt() {
     YOUR_PROJECT_ID=$project
     break
   done
+
+  # After selecting project, ask user to select VM IP
+  select_vm_ip
 
   # Processing the domain to create a valid Cloud Function name
   PROCESSED_DOMAIN=$(echo $YOURDOMAIN | sed -e 's|http[s]\?://||g' | sed -e 's/www\.//' | sed -e 's/[.]/-/g' | tr '[:upper:]' '[:lower:]')
@@ -145,8 +165,14 @@ update_and_deploy_functions() {
   sed -i '' "s/YOUR_PROJECT_ID/$YOUR_PROJECT_ID/g" "$DEPLOY_DIR/v2_functions/index.js"
   sed -i '' "s/YOUR_STATIC_IP/$YOUR_STATIC_IP/g" "$DEPLOY_DIR/v2_functions/index.js"
 
-  # Deploy the v2 function
+    # Deploy the v2 function
   deploy_cloud_function "$FUNCTION_NAME_V2" "restartVM" "nodejs18" "$YOUR_REGION" "$DEPLOY_DIR/v2_functions"
+  # After deploying v2 function, retrieve URL
+  YOUR_WEBHOOK_URL2=$(gcloud functions describe $FUNCTION_NAME_V2 --region $YOUR_REGION --format 'value(httpsTrigger.url)')
+  debug_msg "$FUNCTION_NAME_V2 URL: $YOUR_WEBHOOK_URL2"
+
+  # Use YOUR_WEBHOOK_URL2 in sed command for v1 function files
+  sed -i '' "s/YOUR_WEBHOOK_URL2/$YOUR_WEBHOOK_URL2/g" "$DEPLOY_DIR/v1_functions/index.js"
 
   # Copy v1 function files and update them
   debug_msg "Copying and updating v1 function files..."
@@ -154,7 +180,6 @@ update_and_deploy_functions() {
   sed -i '' "s/YOURDOMAIN.COM/$YOURDOMAIN/g" "$DEPLOY_DIR/v1_functions/index.js"
   sed -i '' "s/YOUR_WEBHOOK_URL2/$YOUR_WEBHOOK_URL2/g" "$DEPLOY_DIR/v1_functions/index.js"
   sed -i '' "s/YOUR_UNIQUE_PASSWORD/$YOUR_UNIQUE_PASSWORD/g" "$DEPLOY_DIR/v1_functions/index.js"
-
 
   # Deploy the v1 function
   deploy_cloud_function "$FUNCTION_NAME_V1" "httpPing" "nodejs20" "$YOUR_REGION" "$DEPLOY_DIR/v1_functions"
@@ -184,6 +209,11 @@ update_and_deploy_functions() {
       --role="roles/compute.instanceAdmin.v1"
 }
 
+# Generate a secure password for YOUR_UNIQUE_PASSWORD
+generate_secure_password() {
+  YOUR_UNIQUE_PASSWORD=$(openssl rand -base64 12)
+  debug_msg "Generated secure password: $YOUR_UNIQUE_PASSWORD"
+}
 
 # Function to set debug mode
 set_debug_mode() {
@@ -197,6 +227,7 @@ main() {
   set_debug_mode $1
   check_prerequisites
   confirm_and_prompt
+  generate_secure_password
   update_and_deploy_functions
 }
 
