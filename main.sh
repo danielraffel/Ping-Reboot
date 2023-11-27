@@ -33,7 +33,7 @@ check_prerequisites() {
 
 # Function to prompt user and get inputs
 confirm_and_prompt() {
-  read -p "This script will setup Google Cloud monitoring for your server. Continue? (Y/N) " answer
+  read -p $'This script will create Google Cloud functions that ping your server and auto restart it if there are issues.\nShall we proceed? (Y/N) ' answer
   case $answer in
     [Yy]* ) ;;
     * ) echo "Exiting script."; exit;;
@@ -57,6 +57,18 @@ confirm_and_prompt() {
     * ) confirm_and_prompt;;
   esac
 
+  # Ask user to select a region for deploying cloud functions
+  echo "Select the region closest to you for deploying cloud functions:"
+  PS3="Enter your choice (1-3): "
+  select region_option in "Oregon: us-west1" "Iowa: us-central1" "South Carolina: us-east1"; do
+    case $region_option in
+      "Oregon: us-west1") YOUR_REGION="us-west1"; break;;
+      "Iowa: us-central1") YOUR_REGION="us-central1"; break;;
+      "South Carolina: us-east1") YOUR_REGION="us-east1"; break;;
+      *) echo "Invalid option. Please select a valid region.";;
+    esac
+  done
+
   # Google Project ID
   echo "Fetching Google Cloud project IDs..."
   project_ids=$(gcloud projects list --format="value(projectId)")
@@ -65,28 +77,41 @@ confirm_and_prompt() {
     exit 1
   fi
 
-  echo "Available Google Cloud Projects:"
+  echo "Select the Google Cloud Project hosting your server:"
   select project in $project_ids; do
     YOUR_PROJECT_ID=$project
     break
   done
 
   # Processing the domain to create a valid Cloud Function name
-  FUNCTION_SUFFIX=$(echo $YOURDOMAIN | sed 's|http[s]\?://||g' | sed 's/[.]/_/g')
+  PROCESSED_DOMAIN=$(echo $YOURDOMAIN | sed -e 's|http[s]\?://||g' | sed -e 's/www\.//' | sed -e 's/[.]/-/g' | tr '[:upper:]' '[:lower:]')
+
+  # Generate function names based on processed domain
+  FUNCTION_NAME_V2="restartvmservice-${PROCESSED_DOMAIN}"
+  FUNCTION_NAME_V1="httpping-${PROCESSED_DOMAIN}"
+  SCHEDULER_NAME="httppinger-${PROCESSED_DOMAIN}"
 }
 
 # Function to deploy a cloud function and check its deployment status
 deploy_cloud_function() {
   local function_name=$1
   local entry_point=$2
+  local runtime=$3
   local region=$YOUR_REGION
+  local source_folder=$4
   local max_wait=240
   local wait_time=5
   local elapsed_time=0
 
-  debug_msg "Deploying cloud function: $function_name"
-  # Command to deploy the cloud function
-  gcloud functions deploy $function_name --entry-point $entry_point --runtime nodejs10 --trigger-http --allow-unauthenticated --region $region
+  debug_msg "Deploying cloud function: $function_name with runtime $runtime from folder $source_folder"
+  # Command to deploy the cloud function with the specified runtime and source folder
+  gcloud functions deploy $function_name \
+    --entry-point $entry_point \
+    --runtime $runtime \
+    --trigger-http \
+    --allow-unauthenticated \
+    --region $region \
+    --source $source_folder
 
   while [ $elapsed_time -lt $max_wait ]; do
     if gcloud functions describe $function_name --region $region | grep -q "status: ACTIVE"; then
@@ -106,31 +131,36 @@ update_and_deploy_functions() {
   # Ensure the working directory is correct
   cd "$(dirname "$0")"
 
-  # Generate function names based on domain
-  FUNCTION_NAME_V2="RestartVMService_${FUNCTION_SUFFIX}"
-  FUNCTION_NAME_V1="httpPing_${FUNCTION_SUFFIX}"
-  SCHEDULER_NAME="httpPinger_${FUNCTION_SUFFIX}"
+  # Use the previously processed domain
+  debug_msg "Processed domain: $PROCESSED_DOMAIN"
 
-  # Update and deploy v2 function (RestartVMService)
-  debug_msg "Updating v2 function..."
-  sed -i "s/YOUR_PROJECT_ID/$YOUR_PROJECT_ID/g" v2_functions/index.js
-  sed -i "s/YOUR_STATIC_IP/$YOUR_STATIC_IP/g" v2_functions/index.js
+  # Create a new directory to hold the function deployments
+  DEPLOY_DIR="./$PROCESSED_DOMAIN"
+  mkdir -p "$DEPLOY_DIR/v1_functions"
+  mkdir -p "$DEPLOY_DIR/v2_functions"
 
-  if deploy_cloud_function "$FUNCTION_NAME_V2" "restartVM"; then
-    YOUR_WEBHOOK_URL2=$(gcloud functions describe $FUNCTION_NAME_V2 --region $YOUR_REGION --format 'value(httpsTrigger.url)')
-    debug_msg "$FUNCTION_NAME_V2 URL: $YOUR_WEBHOOK_URL2"
-  else
-    echo "Failed to deploy $FUNCTION_NAME_V2. Exiting."
-    exit 1
-  fi
+  # Copy v2 function files and update them
+  debug_msg "Copying and updating v2 function files..."
+  cp v2_functions/index.js v2_functions/package.json "$DEPLOY_DIR/v2_functions/"
+  sed -i '' "s/YOUR_PROJECT_ID/$YOUR_PROJECT_ID/g" "$DEPLOY_DIR/v2_functions/index.js"
+  sed -i '' "s/YOUR_STATIC_IP/$YOUR_STATIC_IP/g" "$DEPLOY_DIR/v2_functions/index.js"
 
-  # Update and deploy v1 function (httpPing)
-  debug_msg "Updating v1 function..."
-  sed -i "s/YOURDOMAIN.COM/$YOURDOMAIN/g" v1_functions/index.js
-  sed -i "s/YOUR_WEBHOOK_URL2/$YOUR_WEBHOOK_URL2/g" v1_functions/index.js
-  sed -i "s/YOUR_UNIQUE_PASSWORD/$YOUR_UNIQUE_PASSWORD/g" v1_functions/index.js
+  # Deploy the v2 function
+  deploy_cloud_function "$FUNCTION_NAME_V2" "restartVM" "nodejs18" "$YOUR_REGION" "$DEPLOY_DIR/v2_functions"
 
-  if deploy_cloud_function "$FUNCTION_NAME_V1" "httpPing"; then
+  # Copy v1 function files and update them
+  debug_msg "Copying and updating v1 function files..."
+  cp v1_functions/index.js v1_functions/package.json "$DEPLOY_DIR/v1_functions/"
+  sed -i '' "s/YOURDOMAIN.COM/$YOURDOMAIN/g" "$DEPLOY_DIR/v1_functions/index.js"
+  sed -i '' "s/YOUR_WEBHOOK_URL2/$YOUR_WEBHOOK_URL2/g" "$DEPLOY_DIR/v1_functions/index.js"
+  sed -i '' "s/YOUR_UNIQUE_PASSWORD/$YOUR_UNIQUE_PASSWORD/g" "$DEPLOY_DIR/v1_functions/index.js"
+
+
+  # Deploy the v1 function
+  deploy_cloud_function "$FUNCTION_NAME_V1" "httpPing" "nodejs20" "$YOUR_REGION" "$DEPLOY_DIR/v1_functions"
+
+  # Retrieve and store the URL of the deployed v1 function
+  if deploy_cloud_function "$FUNCTION_NAME_V1" "httpPing" "nodejs20" "$YOUR_REGION" "$DEPLOY_DIR/v1_functions"; then
     YOUR_WEBHOOK_URL1=$(gcloud functions describe $FUNCTION_NAME_V1 --region $YOUR_REGION --format 'value(httpsTrigger.url)')
     debug_msg "$FUNCTION_NAME_V1 URL: $YOUR_WEBHOOK_URL1"
   else
@@ -153,6 +183,7 @@ update_and_deploy_functions() {
       --member="serviceAccount:$SERVICE_ACCOUNT@$YOUR_PROJECT_ID.iam.gserviceaccount.com" \
       --role="roles/compute.instanceAdmin.v1"
 }
+
 
 # Function to set debug mode
 set_debug_mode() {
