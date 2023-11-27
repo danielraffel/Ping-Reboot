@@ -31,11 +31,36 @@ check_prerequisites() {
   fi
 }
 
+# Function to get the default service account
+fetch_service_account() {
+  SERVICE_ACCOUNT_EMAIL="${YOUR_PROJECT_ID}@appspot.gserviceaccount.com"
+  debug_msg "App Engine default service account email: $SERVICE_ACCOUNT_EMAIL"
+}
+
+# Function to check and add roles to the service account
+add_service_account_roles() {
+  # Check and add Cloud Functions Invoker role to the project
+  if ! gcloud projects get-iam-policy $YOUR_PROJECT_ID | grep -q "roles/cloudfunctions.invoker"; then
+    gcloud projects add-iam-policy-binding $YOUR_PROJECT_ID \
+        --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+        --role="roles/cloudfunctions.invoker"
+    debug_msg "Added Cloud Functions Invoker role to project for $SERVICE_ACCOUNT_EMAIL"
+  fi
+
+  # Check and add Compute Instance Admin (v1) role to the project
+  if ! gcloud projects get-iam-policy $YOUR_PROJECT_ID | grep -q "roles/compute.instanceAdmin.v1"; then
+    gcloud projects add-iam-policy-binding $YOUR_PROJECT_ID \
+        --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+        --role="roles/compute.instanceAdmin.v1"
+    debug_msg "Added Compute Instance Admin (v1) role to project for $SERVICE_ACCOUNT_EMAIL"
+  fi
+}
+
 # Function to select VM and set YOUR_STATIC_IP
 select_vm_ip() {
   echo "Fetching Virtual Machine IPs..."
   vm_ips=$(gcloud compute instances list --project $YOUR_PROJECT_ID --format="value(networkInterfaces[0].accessConfigs[0].natIP)")
-  
+
   if [ -z "$vm_ips" ]; then
     echo "No Virtual Machines with external IPs found in the selected project."
     exit 1
@@ -88,17 +113,15 @@ confirm_and_prompt() {
 
   # Google Project ID
   echo "Fetching Google Cloud project IDs..."
-  project_ids=$(gcloud projects list --format="value(projectId)")
-  if [ -z "$project_ids" ]; then
-    echo "No Google Cloud projects found. Please create a project first."
-    exit 1
-  fi
+  project_ids=($(gcloud projects list --format="value(projectId)"))  # Store project IDs in an array
 
+  num_projects=${#project_ids[@]}  # Get the number of projects
   echo "Select the Google Cloud Project hosting your server:"
-  select project in $project_ids; do
+  select project in "${project_ids[@]}"; do
     YOUR_PROJECT_ID=$project
     break
   done
+  PS3="Enter your choice (1-$num_projects): "  # Update the prompt based on the number of projects
 
   # After selecting project, ask user to select VM IP
   select_vm_ip
@@ -108,9 +131,9 @@ confirm_and_prompt() {
   debug_msg "Processed domain for directory: $PROCESSED_DOMAIN"
 
   # Generate function names based on processed domain
-  FUNCTION_NAME_V2="restartvmservice-${PROCESSED_DOMAIN}"
-  FUNCTION_NAME_V1="httpping-${PROCESSED_DOMAIN}"
-  SCHEDULER_NAME="httppinger-${PROCESSED_DOMAIN}"
+  FUNCTION_NAME_V2="restartVMService-${PROCESSED_DOMAIN}"
+  FUNCTION_NAME_V1="httpPing-${PROCESSED_DOMAIN}"
+  SCHEDULER_NAME="httpPinger-${PROCESSED_DOMAIN}"
 }
 
 # Function to deploy a cloud function and check its deployment status
@@ -118,21 +141,38 @@ deploy_cloud_function() {
   local function_name=$1
   local entry_point=$2
   local runtime=$3
-  local region=$YOUR_REGION
-  local source_folder=$4
+  local region=$4
+  local source_folder=$5
+  local is_gen2=$6  # Add a parameter to indicate if the function is gen2
   local max_wait=240
   local wait_time=5
   local elapsed_time=0
 
+  # Add a command to list the contents of the source directory
+  debug_msg "Listing contents of $source_folder"
+  ls -al "$source_folder"
+
   debug_msg "Deploying cloud function: $function_name with runtime $runtime from folder $source_folder"
-  # Command to deploy the cloud function with the specified runtime and source folder
-  gcloud functions deploy $function_name \
-    --entry-point $entry_point \
-    --runtime $runtime \
-    --trigger-http \
-    --allow-unauthenticated \
-    --region $region \
-    --source $source_folder
+  
+  # Deploy the cloud function with or without the --gen2 flag
+  if [ "$is_gen2" = "yes" ]; then
+    gcloud functions deploy $function_name \
+      --entry-point $entry_point \
+      --runtime $runtime \
+      --trigger-http \
+      --allow-unauthenticated \
+      --region $region \
+      --source $source_folder \
+      --gen2  # Include the --gen2 flag for v2 functions
+  else
+    gcloud functions deploy $function_name \
+      --entry-point $entry_point \
+      --runtime $runtime \
+      --trigger-http \
+      --allow-unauthenticated \
+      --region $region \
+      --source $source_folder
+  fi
 
   while [ $elapsed_time -lt $max_wait ]; do
     if gcloud functions describe $function_name --region $region | grep -q "status: ACTIVE"; then
@@ -182,7 +222,7 @@ update_and_deploy_functions() {
 
   # Deploy the v2 function
   debug_msg "Deploying from source directory: $DEPLOY_DIR/v2_functions"
-  deploy_cloud_function "$FUNCTION_NAME_V2" "restartVM" "nodejs18" "$YOUR_REGION" "$DEPLOY_DIR/v2_functions"
+  deploy_cloud_function "$FUNCTION_NAME_V2" "restartVM" "nodejs18" "$YOUR_REGION" "$DEPLOY_DIR/v2_functions" "yes"
   # After deploying v2 function, retrieve URL
   YOUR_WEBHOOK_URL2=$(gcloud functions describe $FUNCTION_NAME_V2 --region $YOUR_REGION --format 'value(httpsTrigger.url)')
   debug_msg "YOUR_WEBHOOK_URL2 for v2 function: $YOUR_WEBHOOK_URL2"
@@ -209,7 +249,7 @@ update_and_deploy_functions() {
 
   # Deploy the v1 function
   debug_msg "Deploying from source directory: $DEPLOY_DIR/v1_functions"
-  deploy_cloud_function "$FUNCTION_NAME_V1" "httpPing" "nodejs20" "$YOUR_REGION" "$DEPLOY_DIR/v1_functions"
+  deploy_cloud_function "$FUNCTION_NAME_V1" "httpPing" "nodejs20" "$YOUR_REGION" "$DEPLOY_DIR/v1_functions" "no"
 
   # Retrieve and store the URL of the deployed v1 function
   if deploy_cloud_function "$FUNCTION_NAME_V1" "httpPing" "nodejs20" "$YOUR_REGION" "$DEPLOY_DIR/v1_functions"; then
@@ -222,24 +262,32 @@ update_and_deploy_functions() {
 
   # Creating Google Cloud Scheduler job named after the processed domain
   debug_msg "Creating Cloud Scheduler job named $SCHEDULER_NAME..."
-  gcloud scheduler jobs create http $SCHEDULER_NAME --schedule="* * * * *" --uri=$YOUR_WEBHOOK_URL1 --message-body='{}' --region $YOUR_REGION
+  gcloud scheduler jobs create http $SCHEDULER_NAME \
+    --schedule="* * * * *" \
+    --uri="$YOUR_WEBHOOK_URL1" \
+    --http-method="GET" \
+    --location="us-west1"
 
-  # Setting roles for service account
-  debug_msg "Setting roles for service account..."
-  gcloud functions add-iam-policy-binding $FUNCTION_NAME_V2 \
-      --region=$YOUR_REGION \
-      --member="serviceAccount:$SERVICE_ACCOUNT@$YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-      --role='roles/cloudfunctions.invoker'
-
-  gcloud projects add-iam-policy-binding $YOUR_PROJECT_ID \
-      --member="serviceAccount:$SERVICE_ACCOUNT@$YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-      --role="roles/compute.instanceAdmin.v1"
+  debug_msg "Created Cloud Scheduler job: $SCHEDULER_NAME"
 }
 
 # Generate a secure password for YOUR_UNIQUE_PASSWORD
 generate_secure_password() {
   YOUR_UNIQUE_PASSWORD=$(openssl rand -base64 12)
   debug_msg "Generated secure password: $YOUR_UNIQUE_PASSWORD"
+}
+
+# Function to display a completion summary
+display_completion_summary() {
+  echo "Script Execution Summary:"
+  echo "-------------------------"
+  echo "Created Cloud Functions:"
+  echo "- $FUNCTION_NAME_V1: https://console.cloud.google.com/functions/"
+  echo "- $FUNCTION_NAME_V2: https://console.cloud.google.com/functions/"
+  echo "Created Cloud Scheduler job:"
+  echo "- $SCHEDULER_NAME: https://console.cloud.google.com/cloudscheduler"
+  echo "-------------------------"
+  echo "You can view and manage the Cloud Functions and Scheduler job using the provided links."
 }
 
 # Function to set debug mode
@@ -255,7 +303,10 @@ main() {
   check_prerequisites
   confirm_and_prompt
   generate_secure_password
+  fetch_service_account
+  add_service_account_roles
   update_and_deploy_functions
+  display_completion_summary
 }
 
 # Run the script
