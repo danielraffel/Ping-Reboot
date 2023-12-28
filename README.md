@@ -37,7 +37,7 @@ To begin using PingAndRestart:
 1. **Clone the Repository**: Obtain the script by cloning the PingAndRestart repository from GitHub.
    
    ```
-   git clone https://github.com/your-repository/PingAndRestart.git
+   git clone https://github.com/danielraffel/PingAndRestart.git
    ```
 
 2. **Run the Script**: Navigate to the script's directory and run the main script.
