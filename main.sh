@@ -75,56 +75,64 @@ select_vm_ip() {
 
 # Function to prompt user and get inputs
 confirm_and_prompt() {
-  read -p $'This script will create Google Cloud functions that ping your server and auto restart it if there are issues.\nShall we proceed? (Y/N) ' answer
-  case $answer in
-    [Yy]* ) ;;
-    * ) echo "Exiting script."; exit;;
-  esac
-
-  # Domain input
-  while true; do
-    read -p "Enter the domain to monitor (http://yourdomain.com): " domain
-    if [[ $domain =~ ^http://.*$|^https://.*$ ]]; then
-      YOURDOMAIN=$domain
-      break
-    else
-      echo "Please enter the URL with http:// or https://"
-    fi
-  done
-
-  # Confirm domain
-  read -p "Monitor $YOURDOMAIN? (Y/N) " confirm_domain
-  case $confirm_domain in
-    [Yy]* ) ;;
-    * ) confirm_and_prompt;;
-  esac
-
-  # Ask user to select a region for deploying cloud functions
-  echo "Select the region closest to you for deploying cloud functions:"
-  PS3="Enter your choice (1-3): "
-  select region_option in "Oregon: us-west1" "Iowa: us-central1" "South Carolina: us-east1"; do
-    case $region_option in
-      "Oregon: us-west1") YOUR_REGION="us-west1"; break;;
-      "Iowa: us-central1") YOUR_REGION="us-central1"; break;;
-      "South Carolina: us-east1") YOUR_REGION="us-east1"; break;;
-      *) echo "Invalid option. Please select a valid region.";;
+  if [ "$1" != "noninteractive" ]; then
+    read -p $'This script will create Google Cloud functions that ping your server and auto restart it if there are issues.\nShall we proceed? (Y/N) ' answer
+    case $answer in
+      [Yy]* ) ;;
+      * ) echo "Exiting script."; exit;;
     esac
-  done
 
-  # Google Project ID
-  echo "Fetching Google Cloud project IDs..."
-  project_ids=($(gcloud projects list --format="value(projectId)"))  # Store project IDs in an array
+    # Domain input
+    while true; do
+      read -p "Enter the domain to monitor (http://yourdomain.com): " domain
+      if [[ $domain =~ ^http://.*$|^https://.*$ ]]; then
+        YOURDOMAIN=$domain
+        break
+      else
+        echo "Please enter the URL with http:// or https://"
+      fi
+    done
 
-  num_projects=${#project_ids[@]}  # Get the number of projects
-  echo "Select the Google Cloud Project hosting your server:"
-  PS3="Enter your choice (1-$num_projects): "  # Update the prompt based on the number of projects
-  select project in "${project_ids[@]}"; do
-    YOUR_PROJECT_ID=$project
-    break
-  done
+    # Confirm domain
+    read -p "Monitor $YOURDOMAIN? (Y/N) " confirm_domain
+    case $confirm_domain in
+      [Yy]* ) ;;
+      * ) confirm_and_prompt;;
+    esac
 
-  # After selecting project, ask user to select VM IP
-  select_vm_ip
+    # Ask user to select a region for deploying cloud functions
+    echo "Select the region closest to you for deploying cloud functions:"
+    PS3="Enter your choice (1-3): "
+    select region_option in "Oregon: us-west1" "Iowa: us-central1" "South Carolina: us-east1"; do
+      case $region_option in
+        "Oregon: us-west1") YOUR_REGION="us-west1"; break;;
+        "Iowa: us-central1") YOUR_REGION="us-central1"; break;;
+        "South Carolina: us-east1") YOUR_REGION="us-east1"; break;;
+        *) echo "Invalid option. Please select a valid region.";;
+      esac
+    done
+
+    # Google Project ID
+    echo "Fetching Google Cloud project IDs..."
+    project_ids=($(gcloud projects list --format="value(projectId)"))  # Store project IDs in an array
+    num_projects=${#project_ids[@]}  # Get the number of projects
+    echo "Select the Google Cloud Project hosting your server:"
+    PS3="Enter your choice (1-$num_projects): "  # Update the prompt based on the number of projects
+    select project in "${project_ids[@]}"; do
+      YOUR_PROJECT_ID=$project
+      break
+    done
+
+    # After selecting project, ask user to select VM IP
+    select_vm_ip
+  else
+    # Source the temporary file to get the variables
+    source "$2"
+    YOURDOMAIN="$domain"
+    YOUR_PROJECT_ID="$project"
+    YOUR_STATIC_IP="$ip"
+    YOUR_REGION="$region"
+  fi
 
   # Processing the domain to create a valid Cloud Function name
   PROCESSED_DOMAIN=$(echo $YOURDOMAIN | sed -E 's|(https?://)||' | sed -E 's|/$||' | sed -E 's|www\.||' | sed -E 's|\.([a-zA-Z0-9]+)|-\1|g' | tr '[:upper:]' '[:lower:]')
@@ -300,13 +308,17 @@ set_debug_mode() {
 # Main script execution
 main() {
   set_debug_mode $1
-  check_prerequisites
-  confirm_and_prompt
+  if [ "$1" != "noninteractive" ]; then
+    check_prerequisites
+  fi
+  confirm_and_prompt $1
   generate_secure_password
   fetch_service_account
   add_service_account_roles
   update_and_deploy_functions
-  display_completion_summary
+  if [ "$1" != "noninteractive" ]; then
+    display_completion_summary
+  fi
 }
 
 # Run the script
