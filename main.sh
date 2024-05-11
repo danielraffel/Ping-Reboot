@@ -220,19 +220,11 @@ update_and_deploy_functions() {
     debug_msg "Copied v2 function files successfully."
 
     # Update YOUR_PROJECT_ID in the copied v2 function files
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      sed -i '' "s/YOUR_PROJECT_ID/$YOUR_PROJECT_ID/g" "$DEPLOY_DIR/v2_functions/index.js"
-    else
-      sed -i "s/YOUR_PROJECT_ID/$YOUR_PROJECT_ID/g" "$DEPLOY_DIR/v2_functions/index.js"
-    fi
+    sed -i '' "s/YOUR_PROJECT_ID/$YOUR_PROJECT_ID/g" "$DEPLOY_DIR/v2_functions/index.js"
     debug_msg "Updated YOUR_PROJECT_ID in $DEPLOY_DIR/v2_functions/index.js"
-  
+
     # Update YOUR_STATIC_IP in the copied v2 function files
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      sed -i '' "s/YOUR_STATIC_IP/$YOUR_STATIC_IP/g" "$DEPLOY_DIR/v2_functions/index.js"
-    else
-      sed -i "s/YOUR_STATIC_IP/$YOUR_STATIC_IP/g" "$DEPLOY_DIR/v2_functions/index.js"
-    fi
+    sed -i '' "s/YOUR_STATIC_IP/$YOUR_STATIC_IP/g" "$DEPLOY_DIR/v2_functions/index.js"
     debug_msg "Updated YOUR_STATIC_IP in $DEPLOY_DIR/v2_functions/index.js"
   fi
 
@@ -253,25 +245,13 @@ update_and_deploy_functions() {
     debug_msg "Copied v1 function files successfully."
 
     # Update variables in the copied v1 function files
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      sed -i '' "s|YOURDOMAIN|$YOURDOMAIN|g" "$DEPLOY_DIR/v1_functions/index.js"
-    else
-      sed -i "s|YOURDOMAIN|$YOURDOMAIN|g" "$DEPLOY_DIR/v1_functions/index.js"
-    fi
+    sed -i '' "s|YOURDOMAIN|$YOURDOMAIN|g" "$DEPLOY_DIR/v1_functions/index.js"
     debug_msg "Updated YOURDOMAIN in $DEPLOY_DIR/v1_functions/index.js"
-  
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      sed -i '' "s|YOUR_WEBHOOK_URL2|$YOUR_WEBHOOK_URL2|g" "$DEPLOY_DIR/v1_functions/index.js"
-    else
-      sed -i "s|YOUR_WEBHOOK_URL2|$YOUR_WEBHOOK_URL2|g" "$DEPLOY_DIR/v1_functions/index.js"
-    fi
+
+    sed -i '' "s|YOUR_WEBHOOK_URL2|$YOUR_WEBHOOK_URL2|g" "$DEPLOY_DIR/v1_functions/index.js"
     debug_msg "Updated YOUR_WEBHOOK_URL2 in $DEPLOY_DIR/v1_functions/index.js"
-  
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      sed -i '' "s|YOUR_UNIQUE_PASSWORD|$YOUR_UNIQUE_PASSWORD|g" "$DEPLOY_DIR/v1_functions/index.js"
-    else
-      sed -i "s|YOUR_UNIQUE_PASSWORD|$YOUR_UNIQUE_PASSWORD|g" "$DEPLOY_DIR/v1_functions/index.js"
-    fi
+
+    sed -i '' "s|YOUR_UNIQUE_PASSWORD|$YOUR_UNIQUE_PASSWORD|g" "$DEPLOY_DIR/v1_functions/index.js"
     debug_msg "Updated YOUR_UNIQUE_PASSWORD in $DEPLOY_DIR/v1_functions/index.js"
   fi
 
